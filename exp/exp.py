@@ -72,7 +72,7 @@ class Exp:
         reconstruct, forecast = self.model(batch_x)
         forecast_loss, reconstruct_loss, loss = self.criterion(batch_x, batch_y, reconstruct, forecast)
 
-        return reconstruct, forecast, forecast_loss, reconstruct_loss, loss
+        return forecast_loss, reconstruct_loss, loss
 
     def _get_score(self, data, dataloader):
         self.model.eval()
@@ -116,7 +116,7 @@ class Exp:
             train_forecast_loss, train_reconstruct_loss, train_loss = [], [], []
             for (batch_x, batch_y) in tqdm(self.trainloader):
                 self.optimizer.zero_grad()
-                _, _, forecast_loss, reconstruct_loss, loss = self._process_one_batch(batch_x, batch_y)
+                forecast_loss, reconstruct_loss, loss = self._process_one_batch(batch_x, batch_y)
                 train_forecast_loss.append(forecast_loss.item())
                 train_reconstruct_loss.append(reconstruct_loss.item())
                 train_loss.append(loss.item())
@@ -126,7 +126,7 @@ class Exp:
             self.model.eval()
             valid_forecast_loss, valid_reconstruct_loss, valid_loss = [], [], []
             for (batch_x, batch_y) in self.validloader:
-                _, _, forecast_loss, reconstruct_loss, loss = self._process_one_batch(batch_x, batch_y)
+                forecast_loss, reconstruct_loss, loss = self._process_one_batch(batch_x, batch_y)
                 valid_forecast_loss.append(forecast_loss.item())
                 valid_reconstruct_loss.append(reconstruct_loss.item())
                 valid_loss.append(loss.item())
@@ -136,7 +136,7 @@ class Exp:
             train_reconstruct_loss = np.sqrt(np.average(np.array(train_reconstruct_loss) ** 2))
             valid_reconstruct_loss = np.sqrt(np.average(np.array(valid_reconstruct_loss) ** 2))
             train_loss = np.sqrt(np.average(np.array(train_loss) ** 2))
-            valid_loss = np.sqrt(np.average(np.array(train_loss) ** 2))
+            valid_loss = np.sqrt(np.average(np.array(valid_loss) ** 2))
 
             self.loss['train']['forecast'].append(train_forecast_loss)
             self.loss['train']['reconstruct'].append(train_reconstruct_loss)
