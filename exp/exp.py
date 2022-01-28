@@ -1,11 +1,9 @@
-import os
-
 import numpy as np
+import os
 import pandas as pd
 import torch
 from sklearn.metrics import precision_score, recall_score, f1_score
 from torch import optim
-from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -63,7 +61,6 @@ class Exp:
         self.criterion = JointLoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-4)
         self.earlystopping = EarlyStop(patience=self.patience)
-        self.scheduler = LambdaLR(self.optimizer, lr_lambda=lambda epoch: 0.5 ** ((epoch - 1) // 2))
 
     def _process_one_batch(self, batch_x, batch_y):
         batch_x = batch_x.float().to(self.device)
@@ -155,7 +152,6 @@ class Exp:
             if self.earlystopping.early_stop:
                 print("Iter {0} is Early stopping!".format(self.iter))
                 break
-            self.scheduler.step()
         self.model.load_state_dict(torch.load(self.path))
 
         plot_loss(self.loss["train"]["forecast"], self.loss["train"]["reconstruct"], self.loss["train"]["total"],
