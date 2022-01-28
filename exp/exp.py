@@ -59,7 +59,7 @@ class Exp:
         print('train: {0}, valid: {1}, test: {2}'.format(len(trainset), len(validset), len(testset)))
 
     def _get_model(self):
-        self.model = MTAD_GAT()
+        self.model = MTAD_GAT().to(self.device)
         self.criterion = JointLoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-4)
         self.earlystopping = EarlyStop(patience=self.patience)
