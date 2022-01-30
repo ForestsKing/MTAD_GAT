@@ -16,5 +16,5 @@ if __name__ == '__main__':
         print("iter " + str(it) + ' is start...')
         exp = Exp(group, it, epochs, batch_size, patience, lr, generate)
         exp.fit()
-        exp.predict(load=False)
+        exp.predict(model_load=False, data_load=False)
         print("iter " + str(it) + ' is end!')

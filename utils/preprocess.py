@@ -44,20 +44,18 @@ def preprocess(generate=False, group='1-1', val_split=0.3, path='./data/SMD/', s
             train_x = train_x.loc[:, cols]
             test_x = test_x.loc[:, cols]
 
-            # 划分训练集与验证集
-            valid = train_x.iloc[-int(val_split * len(train_x)):, :]
-            train = train_x.iloc[:-int(val_split * len(train_x)), :]
-
             # 保存
-            train.to_csv(wpath + '/' + name.split('.')[0] + '_train.csv', index=False)
-            valid.to_csv(wpath + '/' + name.split('.')[0] + '_valid.csv', index=False)
+            train_x.to_csv(wpath + '/' + name.split('.')[0] + '_train.csv', index=False)
             test_x.to_csv(wpath + '/' + name.split('.')[0] + '_test.csv', index=False)
             test_y.to_csv(wpath + '/' + name.split('.')[0] + '_test_label.csv', index=False)
             cols.to_csv(wpath + '/' + name.split('.')[0] + '_columns.csv')
 
     train_x = pd.read_csv(path + 'preprocess/machine-' + group + '/machine-' + group + '_train.csv')
-    valid_x = pd.read_csv(path + 'preprocess/machine-' + group + '/machine-' + group + '_valid.csv')
     test_x = pd.read_csv(path + 'preprocess/machine-' + group + '/machine-' + group + '_test.csv')
     test_y = pd.read_csv(path + 'preprocess/machine-' + group + '/machine-' + group + '_test_label.csv')
+
+    # 划分训练集与验证集
+    valid_x = train_x.iloc[-int(val_split * len(train_x)):, :]
+    train_x = train_x.iloc[:-int(val_split * len(train_x)), :]
 
     return train_x.values, valid_x.values, test_x.values, test_y.values

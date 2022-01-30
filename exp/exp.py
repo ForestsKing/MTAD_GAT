@@ -13,7 +13,7 @@ from model.loss import JointLoss
 from model.mtad_gat import MTAD_GAT
 from utils.adjustpred import adjust_predicts
 from utils.earlystop import EarlyStop
-from utils.evalmethods import pot_threshold
+from utils.evalmethods import pot_threshold, epsilon_threshold, bestf1_threshold
 from utils.plot import plot_loss
 from utils.preprocess import preprocess
 
@@ -59,7 +59,7 @@ class Exp:
             print('train: {0}, valid: {1}, test: {2}'.format(len(trainset), len(validset), len(testset)))
         else:
             self.train_x, self.valid_x, self.test_x, self.test_y = preprocess(generate=generate, group=self.group)
-            self.train_x = np.vstack((self.train_x, self.valid_x)).shape
+            self.train_x = np.vstack((self.train_x, self.valid_x))
 
             trainset = MyDataset(self.train_x, w=self.w)
             testset = MyDataset(self.test_x, w=self.w)
@@ -87,7 +87,7 @@ class Exp:
     def _get_score(self, data, dataloader):
         self.model.eval()
         forecasts, reconstructs = [], []
-        for (batch_x, batch_y) in dataloader:
+        for (batch_x, batch_y) in tqdm(dataloader):
             batch_x = batch_x.float().to(self.device)
             batch_y = batch_y.float().to(self.device)
 
@@ -121,6 +121,36 @@ class Exp:
         return df
 
     def fit(self):
+        # init loss
+        self.model.eval()
+        train_forecast_loss, train_reconstruct_loss, train_loss = [], [], []
+        for (batch_x, batch_y) in tqdm(self.trainloader):
+            forecast_loss, reconstruct_loss, loss = self._process_one_batch(batch_x, batch_y)
+            train_forecast_loss.append(forecast_loss.item())
+            train_reconstruct_loss.append(reconstruct_loss.item())
+            train_loss.append(loss.item())
+
+        self.model.eval()
+        valid_forecast_loss, valid_reconstruct_loss, valid_loss = [], [], []
+        for (batch_x, batch_y) in self.validloader:
+            forecast_loss, reconstruct_loss, loss = self._process_one_batch(batch_x, batch_y)
+            valid_forecast_loss.append(forecast_loss.item())
+            valid_reconstruct_loss.append(reconstruct_loss.item())
+            valid_loss.append(loss.item())
+
+        train_forecast_loss = np.sqrt(np.average(np.array(train_forecast_loss) ** 2))
+        valid_forecast_loss = np.sqrt(np.average(np.array(valid_forecast_loss) ** 2))
+        train_reconstruct_loss = np.sqrt(np.average(np.array(train_reconstruct_loss) ** 2))
+        valid_reconstruct_loss = np.sqrt(np.average(np.array(valid_reconstruct_loss) ** 2))
+        train_loss = np.sqrt(np.average(np.array(train_loss) ** 2))
+        valid_loss = np.sqrt(np.average(np.array(valid_loss) ** 2))
+
+        print(
+            "Iter: {0} Init || Total Loss| Train: {1:.6f} Vali: {2:.6f} || Forecast Loss| Train:{3:.6f} Valid"
+            ": {4:.6f} || Reconstruct Loss| Train: {5:.6f} Valid: {6:.6f}".format(
+                self.iter, train_loss, valid_loss, train_forecast_loss, valid_forecast_loss,
+                train_reconstruct_loss, valid_reconstruct_loss))
+
         for e in range(self.epochs):
             self.model.train()
             train_forecast_loss, train_reconstruct_loss, train_loss = [], [], []
@@ -158,7 +188,7 @@ class Exp:
             print(
                 "Iter: {0} Epoch: {1} || Total Loss| Train: {2:.6f} Vali: {3:.6f} || Forecast Loss| Train:{4:.6f} Valid"
                 ": {5:.6f} || Reconstruct Loss| Train: {6:.6f} Valid: {7:.6f}".format(
-                    self.iter, e, train_loss, valid_loss, train_forecast_loss, valid_forecast_loss,
+                    self.iter, e+1, train_loss, valid_loss, train_forecast_loss, valid_forecast_loss,
                     train_reconstruct_loss, valid_reconstruct_loss))
 
             self.earlystopping(valid_loss, self.model, self.path)
@@ -172,15 +202,19 @@ class Exp:
         plot_loss(self.loss["valid"]["forecast"], self.loss["valid"]["reconstruct"], self.loss["valid"]["total"],
                   './img/' + str(self.group) + '_iter' + str(self.iter) + '_validloss.png')
 
-    def predict(self, load=False):
-        if load:
+    def predict(self, model_load=False, data_load=False):
+        if model_load:
             self.model.load_state_dict(torch.load(self.path))
         self._get_data(generate=False, train=False)
 
         actual_label = self.test_y[self.w:]
 
-        trainresult = self._get_score(self.train_x, self.trainloader)
-        testresult = self._get_score(self.test_x, self.testloader)
+        if data_load:
+            trainresult = pd.read_csv('./result/' + str(self.group) + '_iter' + str(self.iter) + '_trainresult.csv')
+            testresult = pd.read_csv('./result/' + str(self.group) + '_iter' + str(self.iter) + '_testresult.csv')
+        else:
+            trainresult = self._get_score(self.train_x, self.trainloader)
+            testresult = self._get_score(self.test_x, self.testloader)
 
         for i in range(self.test_x.shape[1]):
             train_score = trainresult["Score_" + str(i)].values
@@ -199,8 +233,9 @@ class Exp:
         train_score = trainresult["Score_Global"].values
         test_score = testresult["Score_Global"].values
 
-        threshold = pot_threshold(train_score, test_score)
-        # threshold = bestf1_threshold(test_score, actual_label)
+        # threshold = pot_threshold(train_score, test_score)
+        threshold = bestf1_threshold(test_score, actual_label)
+        # threshold = epsilon_threshold(train_score)
 
         train_pred = (train_score > threshold).astype(np.int)
         test_pred = (test_score > threshold).astype(np.int)
