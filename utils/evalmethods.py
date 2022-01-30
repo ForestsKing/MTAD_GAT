@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.metrics import f1_score
 
+from utils.adjustpred import adjust_predicts
 from utils.spot import SPOT
 
 
@@ -21,6 +22,7 @@ def bestf1_threshold(test_scores, test_label, start=0.01, end=2, search_step=100
     for i in range(search_step):
         threshold = start + i * ((end - start) / search_step)
         test_pred = (test_scores > threshold).astype(np.int)
+        test_pred = adjust_predicts(test_label, test_pred)
         f1 = f1_score(test_label, test_pred)
 
         if f1 > best_f1:

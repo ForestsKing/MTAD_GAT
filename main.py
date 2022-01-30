@@ -10,7 +10,7 @@ if __name__ == '__main__':
     batch_size = 32
     patience = 3
     lr = 0.001
-    generate = False
+    generate = True
 
     for it in range(iters):
         print("iter " + str(it) + ' is start...')

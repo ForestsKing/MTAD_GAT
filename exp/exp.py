@@ -5,13 +5,13 @@ import pandas as pd
 import torch
 from sklearn.metrics import precision_score, recall_score, f1_score
 from torch import optim
-from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from data.dataset import MyDataset
 from model.loss import JointLoss
 from model.mtad_gat import MTAD_GAT
+from utils.adjustpred import adjust_predicts
 from utils.earlystop import EarlyStop
 from utils.evalmethods import pot_threshold
 from utils.plot import plot_loss
@@ -42,21 +42,32 @@ class Exp:
         if not os.path.exists('./result/'):
             os.makedirs('./result/')
 
-    def _get_data(self, generate, shuffle=True):
-        self.train_x, self.valid_x, self.test_x, self.test_y = preprocess(generate=generate, group=self.group)
+    def _get_data(self, generate, train=True):
+        if train:
+            self.train_x, self.valid_x, self.test_x, self.test_y = preprocess(generate=generate, group=self.group)
+            trainset = MyDataset(self.train_x, w=self.w)
+            validset = MyDataset(self.valid_x, w=self.w)
+            testset = MyDataset(self.test_x, w=self.w)
 
-        trainset = MyDataset(self.train_x, w=self.w)
-        validset = MyDataset(self.valid_x, w=self.w)
-        testset = MyDataset(self.test_x, w=self.w)
+            self.trainloader = DataLoader(trainset, batch_size=self.batch_size, shuffle=True)
+            self.validloader = DataLoader(validset, batch_size=self.batch_size, shuffle=True)
+            self.testloader = DataLoader(testset, batch_size=self.batch_size, shuffle=True)
 
-        self.trainloader = DataLoader(trainset, batch_size=self.batch_size, shuffle=shuffle)
-        self.validloader = DataLoader(validset, batch_size=self.batch_size, shuffle=shuffle)
-        self.testloader = DataLoader(testset, batch_size=self.batch_size, shuffle=shuffle)
+            self.loss = {'train': {'forecast': [], 'reconstruct': [], 'total': []},
+                         'valid': {'forecast': [], 'reconstruct': [], 'total': []}}
 
-        self.loss = {'train': {'forecast': [], 'reconstruct': [], 'total': []},
-                     'valid': {'forecast': [], 'reconstruct': [], 'total': []}}
+            print('train: {0}, valid: {1}, test: {2}'.format(len(trainset), len(validset), len(testset)))
+        else:
+            self.train_x, self.valid_x, self.test_x, self.test_y = preprocess(generate=generate, group=self.group)
+            self.train_x = np.vstack((self.train_x, self.valid_x)).shape
 
-        print('train: {0}, valid: {1}, test: {2}'.format(len(trainset), len(validset), len(testset)))
+            trainset = MyDataset(self.train_x, w=self.w)
+            testset = MyDataset(self.test_x, w=self.w)
+
+            self.trainloader = DataLoader(trainset, batch_size=self.batch_size, shuffle=True)
+            self.testloader = DataLoader(testset, batch_size=self.batch_size, shuffle=True)
+
+            print('train: {0}, test: {1}'.format(len(trainset), len(testset)))
 
     def _get_model(self):
         self.model = MTAD_GAT().to(self.device)
@@ -164,57 +175,48 @@ class Exp:
     def predict(self, load=False):
         if load:
             self.model.load_state_dict(torch.load(self.path))
-        self._get_data(generate=False, shuffle=False)
+        self._get_data(generate=False, train=False)
 
         actual_label = self.test_y[self.w:]
 
         trainresult = self._get_score(self.train_x, self.trainloader)
-        validresult = self._get_score(self.valid_x, self.validloader)
         testresult = self._get_score(self.test_x, self.testloader)
 
         for i in range(self.test_x.shape[1]):
-            train_score = trainresult["Score_" + str(i)]
-            valid_score = validresult["Score_" + str(i)]
-            test_score = testresult["Score_" + str(i)]
+            train_score = trainresult["Score_" + str(i)].values
+            test_score = testresult["Score_" + str(i)].values
 
-            threshold = pot_threshold(valid_score, test_score)
+            threshold = pot_threshold(train_score, test_score)
 
             train_pred = (train_score > threshold).astype(np.int)
-            valid_pred = (valid_score > threshold).astype(np.int)
             test_pred = (test_score > threshold).astype(np.int)
 
             trainresult["Pred_" + str(i)] = train_pred
             trainresult["Threshold_" + str(i)] = threshold
-            validresult["Pred_" + str(i)] = valid_pred
-            validresult["Threshold_" + str(i)] = threshold
             testresult["Pred_" + str(i)] = test_pred
             testresult["Threshold_" + str(i)] = threshold
 
-        train_score = trainresult["Score_Global"]
-        valid_score = validresult["Score_Global"]
-        test_score = testresult["Score_Global"]
+        train_score = trainresult["Score_Global"].values
+        test_score = testresult["Score_Global"].values
 
-        threshold = pot_threshold(valid_score, test_score)
+        threshold = pot_threshold(train_score, test_score)
         # threshold = bestf1_threshold(test_score, actual_label)
 
         train_pred = (train_score > threshold).astype(np.int)
-        valid_pred = (valid_score > threshold).astype(np.int)
         test_pred = (test_score > threshold).astype(np.int)
+
+        train_pred = adjust_predicts(np.zeros_like(train_pred), train_pred)
+        test_pred = adjust_predicts(actual_label, test_pred)
 
         trainresult["Pred_Global"] = train_pred
         trainresult["Label_Global"] = 0
         trainresult["Threshold_Global"] = threshold
-
-        validresult["Pred_Global"] = valid_pred
-        validresult["Label_Global"] = 0
-        validresult["Threshold_Global"] = threshold
 
         testresult["Pred_Global"] = test_pred
         testresult["Label_Global"] = actual_label
         testresult["Threshold_Global"] = threshold
 
         trainresult.to_csv('./result/' + str(self.group) + '_iter' + str(self.iter) + '_trainresult.csv', index=False)
-        validresult.to_csv('./result/' + str(self.group) + '_iter' + str(self.iter) + '_validresult.csv', index=False)
         testresult.to_csv('./result/' + str(self.group) + '_iter' + str(self.iter) + '_testresult.csv', index=False)
 
         print("Iter {0} Group {1} || precision: {2:.6f} recall: {3:.6f} f1: {4:.6f}".format(
